@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ruta-Libre 📲</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #FDFEFE; color: #333; }
+    header { background: #1ABC9C; color: white; padding: 20px; text-align: center; }
+    select, button { font-size: 16px; padding: 10px; margin: 5px; border-radius: 5px; border: none; width: 90%; max-width: 300px; }
+    button { color: white; cursor: pointer; }
+    .start { background: #27AE60; }
+    .pause { background: #F1C40F; }
+    .stop { background: #E74C3C; }
+    #map { height: 250px; margin: 10px auto; width: 95%; border-radius: 10px; }
+    .metrics, .controls, .selector, .popup { text-align: center; margin: 10px; }
+    .metric { background: #D6EAF8; display: inline-block; margin: 5px; padding: 10px; border-radius: 8px; font-weight: bold; min-width: 120px; }
+    .popup { background: white; border: 2px solid #1ABC9C; padding: 20px; border-radius: 10px; display: none; max-width: 300px; margin: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h2>Ruta-Libre 📍</h2>
+  <p>Escoge tu actividad y empieza tu aventura</p>
+</header>
+
+<div class="selector">
+  <label for="actividad">🎯 Actividad:</label><br>
+  <select id="actividad">
+    <option value="Correr">🏃 Correr</option>
+    <option value="Caminar">🚶 Caminar</option>
+    <option value="Bicicleta">🚴 Bicicleta</option>
+    <option value="Senderismo">🥾 Senderismo</option>
+  </select>
+</div>
+
+<div class="controls">
+  <button class="start" onclick="startTracking()">🟢 Iniciar</button>
+  <button class="pause" onclick="togglePause()">⏸️ Pausar / Reanudar</button>
+  <button class="stop" onclick="finalizeTracking()">⏹️ Finalizar</button>
+</div>
+
+<div id="map"></div>
+
+<div class="metrics">
+  <div class="metric">🧭 Actividad: <span id="tipo">-</span></div>
+  <div class="metric">📏 Distancia: <span id="dist">0.00 km</span></div>
+  <div class="metric">🕒 Tiempo: <span id="time">0:00</span></div>
+  <div class="metric">⚡ Velocidad: <span id="speed">0 km/h</span></div>
+</div>
+
+<div class="popup" id="savePopup">
+  <h3>¿Guardar esta sesión?</h3>
+  <p>Actividad: <span id="finalTipo"></span></p>
+  <p>Distancia: <span id="finalDist"></span> km</p>
+  <p>Tiempo: <span id="finalTime"></span></p>
+  <button onclick="saveActivity()">💾 Guardar</button>
+  <button onclick="discardActivity()">🗑️ Descartar</button>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  let map, watchID, path=[], distance=0, paused=false, timerInterval;
+  let startTime, elapsedTime = 0;
+
+  function startTracking() {
+    if (!map) {
+      map = L.map('map').setView([3.45, -76.53], 15);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    }
+    document.getElementById("tipo").textContent = actividad.value;
+    startTime = Date.now();
+    elapsedTime = 0;
+    timerInterval = setInterval(updateTime, 1000);
+    watchID = navigator.geolocation.watchPosition(trackPosition, err => alert("GPS error"), { enableHighAccuracy: true });
+    paused = false;
+  }
+
+  function togglePause() {
+    paused = !paused;
+    if (paused) {
+      clearInterval(timerInterval);
+      alert("⏸️ Actividad pausada");
+    } else {
+      startTime = Date.now() - elapsedTime;
+      timerInterval = setInterval(updateTime, 1000);
+      alert("▶️ Actividad reanudada");
+    }
+  }
+
+  function trackPosition(pos) {
+    if (paused) return;
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    const speed = (pos.coords.speed || 0) * 3.6;
+    document.getElementById('speed').textContent = speed.toFixed(1) + ' km/h';
+    path.push([lat, lon]);
+    if (path.length > 1) {
+      const [lat1, lon1] = path[path.length - 2];
+      distance += calcDist(lat1, lon1, lat, lon);
+      document.getElementById('dist').textContent = distance.toFixed(2) + ' km';
+    }
+    L.circleMarker([lat, lon], { radius: 5, color: '#1ABC9C' }).addTo(map);
+    map.setView([lat, lon], map.getZoom());
+  }
+
+  function calcDist(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI/180;
+    const dLon = (lon2 - lon1) * Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function updateTime() {
+    elapsedTime = Date.now() - startTime;
+    const sec = Math.floor(elapsedTime / 1000);
+    const min = Math.floor(sec / 60);
+    const s = sec % 60;
+    document.getElementById('time').textContent = `${min}:${s.toString().padStart(2, '0')}`;
+  }
+
+  function finalizeTracking() {
+    clearInterval(timerInterval);
+    navigator.geolocation.clearWatch(watchID);
+    document.getElementById('finalTipo').textContent = actividad.value;
+    document.getElementById('finalDist').textContent = distance.toFixed(2);
+    document.getElementById('finalTime').textContent = document.getElementById('time').textContent;
+    document.getElementById('savePopup').style.display = 'block';
+  }
+
+  function saveActivity() {
+    alert("✅ Actividad guardada (simulada)");
+    resetApp();
+  }
+
+  function discardActivity() {
+    alert("❌ Actividad descartada");
+    resetApp();
+  }
+
+  function resetApp() {
+    distance = 0;
+    path = [];
+    elapsedTime = 0;
+    document.getElementById('dist').textContent = '0.00 km';
+    document.getElementById('time').textContent = '0:00';
+    document.getElementById('speed').textContent = '0 km/h';
+    document.getElementById('tipo').textContent = '-';
+    document.getElementById('savePopup').style.display = 'none';
+    if (map) { map.remove(); map = null; }
+  }
+
+  const actividad = document.getElementById("actividad");
+</script>
+
+</body>
+</html>
